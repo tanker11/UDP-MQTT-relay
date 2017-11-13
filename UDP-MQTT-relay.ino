@@ -7,6 +7,7 @@ MD_KeySwitch S(SWITCH_PIN, SWITCH_ACTIVE);
 
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
+#include <WiFiUDP.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <PubSubClient.h>
@@ -21,7 +22,7 @@ const int FW_VERSION = 1001;
 const char* fwUrlBase = "http://192.168.1.196/fwtest/fota/"; //FW files should be uploaded to this HTTP directory
 // note: alias.bin and alias.version files should be there. Update will be performed if the version file contains bigger number than the FW_VERSION variable
 
-#define ALIAS "alma"
+#define ALIAS "udp-mqtt"
 #define TOPIC_DEV_STATUS "/device/" ALIAS "/status"
 #define TOPIC_DEV_COMMAND "/device/" ALIAS "/command"
 #define TOPIC_DEV_TEST "/device/" ALIAS "/test"
@@ -30,12 +31,11 @@ const char* fwUrlBase = "http://192.168.1.196/fwtest/fota/"; //FW files should b
 #define TOPIC_DEV_ALARM "/device/" ALIAS "/alarm"
 #define TOPIC_DEV_FOTA "/device/" ALIAS "/fota"
 #define TOPIC_DEV_RGB "/device/" ALIAS "/rgb"
-#define TOPIC_DEV_BRIGHTNESS "/device/" ALIAS "/brightness"
 
 #define TOPIC_ALL_ALARM "/all/alarm"
 #define TOPIC_ALL_FOTA "/all/fota"
 #define TOPIC_ALL_RGB "/all/rgb"
-#define TOPIC_ALL_BRIGHTNESS "/all/brightness"
+
 
 const char* ssid = "testm";
 const char* password = "12345678";
@@ -51,6 +51,9 @@ char recTopic[50];
 char recCommand[10];
 char recValue[10];
 
+unsigned int localUdpPort = 9900;  // local port to listen on
+char incomingPacket[255];  // buffer for incoming packets
+char  replyPacket[] = "Hi there! Got the message :-)";  // a reply string to send back
 
 boolean msgReceived; //shows if message received
 char digitTemp[3];
@@ -64,7 +67,7 @@ Ticker flipper; //for blinking built-in LED to show wifi and MQTT status
 
 
 
-
+WiFiUDP UDPServer;
 WiFiClient wclient;
 PubSubClient client(wclient);
 
@@ -164,6 +167,7 @@ void subscribeToTopics() {
 
   //Note: multible subscription will not work without client.loop();
 
+/*
   client.subscribe(TOPIC_DEV_COMMAND);
   Serial.println("Subscribed to [" TOPIC_DEV_COMMAND "] topic");
   client.loop();
@@ -185,9 +189,6 @@ void subscribeToTopics() {
   client.subscribe(TOPIC_DEV_RGB);
   Serial.println("Subscribed to [" TOPIC_DEV_RGB "] topic");
   client.loop();
-  client.subscribe(TOPIC_DEV_BRIGHTNESS);
-  Serial.println("Subscribed to [" TOPIC_DEV_BRIGHTNESS "] topic");
-  client.loop();
   client.subscribe(TOPIC_ALL_ALARM);
   Serial.println("Subscribed to [" TOPIC_ALL_ALARM "] topic");
   client.loop();
@@ -196,11 +197,10 @@ void subscribeToTopics() {
   client.loop();
   client.subscribe(TOPIC_ALL_RGB);
   Serial.println("Subscribed to [" TOPIC_ALL_RGB "] topic");
-  client.loop();
-  client.subscribe(TOPIC_ALL_BRIGHTNESS);
-  Serial.println("Subscribed to [" TOPIC_ALL_BRIGHTNESS "] topic");
+*/
 
-
+  client.subscribe("#");  //SUBSCRIBE TO ALL TOPICS
+  Serial.println("Subscribed to all topics (#)");
 
 
 }
@@ -322,7 +322,7 @@ void processRecMessage() {
 
     if (strcmp(recMsg, "reboot") == 0) {
       Serial.println("Rebooting...");
-      
+
       delay(500);
       ESP.restart();
     }
@@ -422,6 +422,11 @@ void setup()
   Serial.println();
 
   //  connectWifi();
+
+  UDPServer.begin(localUdpPort);
+  
+
+
   client.setServer(mqttServerIP, 1883);
   client.setCallback(callback);
 
@@ -468,6 +473,7 @@ void loop() {
       strcpy(msg, "");
       if (client.connect(alias, TOPIC_DEV_STATUS, 1, 1, "offline")) { //boolean connect (clientID, willTopic, willQoS, willRetain, willMessage)
         Serial.println("Client connected");
+        Serial.printf("Now listening at IP %s, UDP port %d\n", WiFi.localIP().toString().c_str(), localUdpPort);
         Serial.println();
 
         flipper.detach();
@@ -504,8 +510,34 @@ void loop() {
     if (client.connected()) client.loop();
     if (msgReceived) processRecMessage();
 
+    //UDP PROCESSING START
 
-  
+    int packetSize = UDPServer.parsePacket();
+    if (packetSize)
+    {
+      // receive incoming UDP packets
+      Serial.printf("Received %d bytes from %s, port %d\n", packetSize, UDPServer.remoteIP().toString().c_str(), UDPServer.remotePort());
+      int len = UDPServer.read(incomingPacket, 255);
+      if (len > 0)
+      {
+        incomingPacket[len] = 0;
+      }
+      Serial.printf("UDP packet contents: %s\n", incomingPacket);
+
+  strcpy(msg, "");
+  strcpy(msg, incomingPacket);
+  client.publish(TOPIC_DEV_STATUS, msg);
+  Serial.printf("MQTT topic: %s, message: %s\n", TOPIC_DEV_STATUS, msg);
+      
+
+      // send back a reply, to the IP address and port we got the packet from
+      //UDPServer.beginPacket(UDPServer.remoteIP(), UDPServer.remotePort());
+      UDPServer.beginPacket(UDPServer.remoteIP(), localUdpPort);
+      UDPServer.write(replyPacket);
+      UDPServer.endPacket();
+    }
+    //UDP PROCESSING END
+
     //Handle keypresses
     switch (S.read())
     {

@@ -1,4 +1,15 @@
 
+/*
+   Nem kell feliratkozni a "#"-re.
+   Csak a response (status?) csatornákra kell, és onnan begyűjteni a specifikus válaszokat.
+   
+   Char változókat optimalizálni.
+   Mindegyiket használjuk?
+   Jó a hosszuk?
+
+   
+ * */
+
 
 #include <MD_KeySwitch.h>
 const uint8_t SWITCH_PIN = 0;       // switch connected to this pin
@@ -42,8 +53,7 @@ const char* password = "12345678";
 const char* alias = ALIAS;
 
 
-String topicTemp; //topic string used ofr various publishes
-String publishTemp;
+//Variables for MQTT messaging
 char msg[50];
 char topic[50];
 char recMsg[50];
@@ -51,9 +61,13 @@ char recTopic[50];
 char recCommand[10];
 char recValue[10];
 
-unsigned int localUdpPort = 9900;  // local port to listen on
+//Variables for UDP messaging and conversion
 char incomingPacket[255];  // buffer for incoming packets
-char  replyPacket[] = "Hi there! Got the message :-)";  // a reply string to send back
+char  replyPacket[] = "RECEIVED";  // a reply string to send back
+char sendTopic[255];  // buffer for sending Topic
+char sendValue[255];  // buffer for sending Value
+
+unsigned int localUdpPort = 9900;  // local port to listen on
 
 boolean msgReceived; //shows if message received
 char digitTemp[3];
@@ -167,37 +181,37 @@ void subscribeToTopics() {
 
   //Note: multible subscription will not work without client.loop();
 
-/*
-  client.subscribe(TOPIC_DEV_COMMAND);
-  Serial.println("Subscribed to [" TOPIC_DEV_COMMAND "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_TEST);
-  Serial.println("Subscribed to [" TOPIC_DEV_TEST "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_SETURL);
-  Serial.println("Subscribed to [" TOPIC_DEV_SETURL "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_FASTLED);
-  Serial.println("Subscribed to [" TOPIC_DEV_FASTLED "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_ALARM);
-  Serial.println("Subscribed to [" TOPIC_DEV_ALARM "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_FOTA);
-  Serial.println("Subscribed to [" TOPIC_DEV_FOTA "] topic");
-  client.loop();
-  client.subscribe(TOPIC_DEV_RGB);
-  Serial.println("Subscribed to [" TOPIC_DEV_RGB "] topic");
-  client.loop();
-  client.subscribe(TOPIC_ALL_ALARM);
-  Serial.println("Subscribed to [" TOPIC_ALL_ALARM "] topic");
-  client.loop();
-  client.subscribe(TOPIC_ALL_FOTA);
-  Serial.println("Subscribed to [" TOPIC_ALL_FOTA "] topic");
-  client.loop();
-  client.subscribe(TOPIC_ALL_RGB);
-  Serial.println("Subscribed to [" TOPIC_ALL_RGB "] topic");
-*/
+  /*
+    client.subscribe(TOPIC_DEV_COMMAND);
+    Serial.println("Subscribed to [" TOPIC_DEV_COMMAND "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_TEST);
+    Serial.println("Subscribed to [" TOPIC_DEV_TEST "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_SETURL);
+    Serial.println("Subscribed to [" TOPIC_DEV_SETURL "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_FASTLED);
+    Serial.println("Subscribed to [" TOPIC_DEV_FASTLED "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_ALARM);
+    Serial.println("Subscribed to [" TOPIC_DEV_ALARM "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_FOTA);
+    Serial.println("Subscribed to [" TOPIC_DEV_FOTA "] topic");
+    client.loop();
+    client.subscribe(TOPIC_DEV_RGB);
+    Serial.println("Subscribed to [" TOPIC_DEV_RGB "] topic");
+    client.loop();
+    client.subscribe(TOPIC_ALL_ALARM);
+    Serial.println("Subscribed to [" TOPIC_ALL_ALARM "] topic");
+    client.loop();
+    client.subscribe(TOPIC_ALL_FOTA);
+    Serial.println("Subscribed to [" TOPIC_ALL_FOTA "] topic");
+    client.loop();
+    client.subscribe(TOPIC_ALL_RGB);
+    Serial.println("Subscribed to [" TOPIC_ALL_RGB "] topic");
+  */
 
   client.subscribe("#");  //SUBSCRIBE TO ALL TOPICS
   Serial.println("Subscribed to all topics (#)");
@@ -424,7 +438,7 @@ void setup()
   //  connectWifi();
 
   UDPServer.begin(localUdpPort);
-  
+
 
 
   client.setServer(mqttServerIP, 1883);
@@ -524,15 +538,31 @@ void loop() {
       }
       Serial.printf("UDP packet contents: %s\n", incomingPacket);
 
-  strcpy(msg, "");
-  strcpy(msg, incomingPacket);
-  client.publish(TOPIC_DEV_STATUS, msg);
-  Serial.printf("MQTT topic: %s, message: %s\n", TOPIC_DEV_STATUS, msg);
-      
+
+      client.publish(TOPIC_DEV_STATUS, msg);
+      Serial.printf("MQTT topic: %s, message: %s\n", TOPIC_DEV_STATUS, msg);
+      String incomingStr(incomingPacket);
+      int semicolonPos = incomingStr.indexOf(";");
+      Serial.printf("IndexOf:%d\n", semicolonPos);
+
+      String incomingTopic = incomingStr.substring(0, semicolonPos);
+      String incomingValue = incomingStr.substring(semicolonPos + 1);
+
+      Serial.println(incomingTopic);
+      Serial.println(incomingValue);
+
+      incomingTopic.toCharArray(sendTopic, incomingTopic.length() + 1); //Converting String to Char Array
+      incomingValue.toCharArray(sendValue, incomingValue.length() + 1); //Converting String to Char Array
+
+      Serial.println(sendTopic);
+      Serial.println(sendValue);
+
+      client.publish(sendTopic, sendValue);
+      Serial.printf("MQTT topic: %s, message: %s\n", sendTopic, sendValue);
 
       // send back a reply, to the IP address and port we got the packet from
       //UDPServer.beginPacket(UDPServer.remoteIP(), UDPServer.remotePort());
-      UDPServer.beginPacket(UDPServer.remoteIP(), localUdpPort);
+      UDPServer.beginPacket(UDPServer.remoteIP(), localUdpPort); //send to the same port of the sender
       UDPServer.write(replyPacket);
       UDPServer.endPacket();
     }
